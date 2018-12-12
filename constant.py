@@ -1,0 +1,2 @@
+IMG_ROWS = 35
+IMG_COLS = 35

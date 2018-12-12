@@ -6,6 +6,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from PIL import Image
 import PossibleStep as ps
+import NeuralNetwork as nt
 
 
 def connectedComponents(path):
@@ -13,22 +14,22 @@ def connectedComponents(path):
 
     # applico trasformazioni morfologiche alla mia immagine per migliorare eventuali errori presenti
     image = cv2.cvtColor(np.asarray(image), cv2.COLOR_BGR2GRAY)
-    Image.fromarray(image).save("C:/Users/manue/Desktop/gray.bmp")
+    #Image.fromarray(image).save("C:/Users/manue/Desktop/gray.bmp")
     _, image = cv2.threshold(image, 250, 255, cv2.THRESH_BINARY)
-    Image.fromarray(image).save("C:/Users/manue/Desktop/bin.bmp")
-    kernel = np.array([[0,1,0],[1,1,1],[0,1,0]], np.uint8)             # definisco elemento strutturante
-    #kernel = np.ones((3,3), np.uint8)
-    #image = cv2.erode(image, kernel, iterations=1)
-    #image = cv2.dilate(image, kernel, iterations=1)
-    #Image.fromarray(image).save("C:/Users/manue/Desktop/Manuel/scuola/Universita'/Tesi/French-CVC/spain_T4_0.bmp")
+    #Image.fromarray(image).save("C:/Users/manue/Desktop/bin.bmp")
+    # kernel = np.array([[0,1,0],[1,1,1],[0,1,0]], np.uint8)             # definisco elemento strutturante
+    kernel = np.ones((2,2), np.uint8)
+    image = cv2.erode(image, kernel, iterations=1)
+    # image = cv2.dilate(image, kernel, iterations=1)
+    #Image.fromarray(image).save("C:/Users/manue/Desktop/erose.bmp")
 
     # converto l'immagine in scale di grigio e poi la binarizzo
-    #gray_image = cv2.cvtColor(np.asarray(image), cv2.COLOR_BGR2GRAY)
-    #_, th = cv2.threshold(gray_image, 127, 255, cv2.THRESH_OTSU)
+    # gray_image = cv2.cvtColor(np.asarray(image), cv2.COLOR_BGR2GRAY)
+    # _, th = cv2.threshold(gray_image, 127, 255, cv2.THRESH_OTSU)
 
     # cerco le componenti connesse
     numCC, labels = cv2.connectedComponents(image)
-    print (numCC)
+    # print (numCC)
 
     # labels e' una matrice singola in cui sono etichettate le componenti connesse
     return numCC, labels
@@ -42,9 +43,6 @@ def createGraph(components):
     tot = np.zeros(components[0].image.shape)
     for i in range(len(components)):
         for j in range(i + 1, len(components)):
-
-            if i==51 and j==52:
-                print("")
             seg1 = [(0,0), (1,1)]
             seg2 = [(0,0), (1,1)]
             # cerco i due lati confinanti delle figure
@@ -96,21 +94,41 @@ def createGraph(components):
                 tot += components[i].image
                 tot += components[j].image
 
-    #cv2.drawContours(tot, [components[51].contour], -1, 127, 2)
+    #cv2.drawContours(tot, [components[32].contour], -1, 127, 2)
     #cv2.drawContours(tot, [components[52].contour], -1, 127, 2)
     #print (cv2.contourArea(components[87].contour))
+
+    tot = tot.astype(np.uint8)
+    #Image.fromarray(tot).save("C:/Users/manue/Desktop/imgTot.bmp")
+
+    pos = nx.get_node_attributes(G, 'pos')
+    nx.draw(G, pos, node_color=list(node_color.values()))
+    nx.draw_networkx_labels(G, pos, labels)
+
+    plt.show()
 
     # elimino le componenti connesse con meno di 5 elementi
     dictCC = {}
     cont = 0
-    '''
+
     for sg in list(nx.connected_component_subgraphs(G, copy=False)):
-        if len(sg.nodes()) < 5:
-            for node in sg.nodes():
-                del node_color[node]
-                del labels[node]
-                G.remove_node(node)
-                tot[node.image != 0] = 0
+        if len(sg.nodes()) <= 5:
+            stairs = 0
+            #for node in sg.nodes():                   # condizione aggiunta se uso versione con rete neurale
+               # if node.probability > 0.5:
+              #      stairs += 1
+            if stairs < 3:
+                for node in sg.nodes():
+                    del node_color[node]
+                    del labels[node]
+                    G.remove_node(node)
+                    tot[node.image != 0] = 0
+            else:
+                dictCC[cont] = np.zeros(tot.shape, np.uint8)
+                for n in sg.nodes():
+                    dictCC[cont] += n.image
+                dictCC[cont] = dictCC[cont].astype(np.uint8)
+                cont += 1
         # elimino anche le componenti connesse in cui la maggioranza degli archi ha intersezione!=1
         else:
             edges = sg.edges(data=True)
@@ -133,11 +151,8 @@ def createGraph(components):
                 dictCC[cont] = dictCC[cont].astype(np.uint8)
                 cont += 1
 
-    for segment in range(len(dictCC)):
-        Image.fromarray(dictCC[segment]).save("C:/Users/manue/Desktop/img"+str(segment)+".bmp")
-    '''
     tot = tot.astype(np.uint8)
-    Image.fromarray(tot).save("C:/Users/manue/Desktop/imgTot.bmp")
+    #Image.fromarray(tot).save("C:/Users/manue/Desktop/imgTotRid.bmp")
 
     pos = nx.get_node_attributes(G, 'pos')
     nx.draw(G, pos, node_color=list(node_color.values()))
@@ -151,7 +166,7 @@ def createGraph(components):
 def createEdge(nodeI, segI, nodeJ, segJ, tup):
     # calcolo angolo, centrato nel centro della figura, che tocca i due estremi del touching segment
     # angolo nodoI
-    d = distanceLinePoint(segI[0], segI[1], nodeI.centroid)
+    '''d = distanceLinePoint(segI[0], segI[1], nodeI.centroid)
     r0 = distance(nodeI.centroid, segI[0])
     r1 = distance(nodeI.centroid, segI[1])
     angI = math.acos(d / r0) + math.acos(d / r1)
@@ -168,7 +183,7 @@ def createEdge(nodeI, segI, nodeJ, segJ, tup):
     areaI = cv2.contourArea(nodeI.contour)
     areaJ = cv2.contourArea(nodeJ.contour)
     ratioArea = min(areaI, areaJ) / max(areaI, areaJ)
-
+    '''
     # calcolo in quanto intersecano i due rettangoli
     inter1 = intersectionPercentual(segI, segJ, tup)
     inter2 = intersectionPercentual(segJ, segI, tup)
@@ -180,49 +195,20 @@ def createEdge(nodeI, segI, nodeJ, segJ, tup):
         inter = min(inter1, inter2)
 
     #print (inter)
-    if inter <= 0.2:
+    if inter <= 0.4:
         return None
 
-    return ps.Edge(nodeI, nodeJ, angI, angJ, inter)
+    #return ps.Edge(nodeI, nodeJ, angI, angJ, inter)
+    return ps.Edge(nodeI, nodeJ, 0, 0, inter)
 
 
-def rectangleComponents(num, labels, minArea=100, maxArea=100000):
-    rects = []
-
-    for i in range(2, num):
-        CC = np.copy(labels)
-        CC[CC != i] = 0
-        CC[CC != 0] = 255  # se mettevo CC[CC==i] non funzionava (?)
-
-        CC = CC.astype(np.uint8)  # converto in uint8 perche alcune funzioni di opencv necessitano di caratteri uint8
-        # Image.fromarray(CC).show()
-
-        # stampo il lavoro svolto
-        if i % 30 == 0:
-            print ("count: ", i, "/", num)
-
-        y_rect, y_internal, centroid, contour = contoursDescriptor(CC.copy())
-        if len(y_rect) == len(y_internal):
-            dif = []
-            for j in range(len(y_internal)):  # calcolo la distanza tra y_internal ed y_rect
-                dif.append(y_rect[j] - y_internal[j])
-
-            mean = sum(dif) / len(dif)
-            if mean <= min(dif) + 0.2 and mean >= max(dif) - 0.2 and cv2.contourArea(
-                    contour) >= minArea and cv2.contourArea(
-                    contour) <= maxArea:  # se i due array sono abbastanza vicini significa che la CC rappresenta un rettangolo, in piu scarto i rettangoli troppo piccoli o troppo grandi
-                # print ("i: ", i)
-                peri = cv2.arcLength(contour, True)
-                approx = cv2.approxPolyDP(contour, 0.04 * peri, True)
-                rects.append(ps.PossibleStep(y_internal.copy(), CC.copy(), centroid.copy(),
-                                             approx.copy()))  # aggiungo in rects un oggetto PossibleStep
-
-    return rects
-
-
-def allComponents(num, labels, minArea=100, maxArea=100000):
+def allComponents(num, labels):
     components = []
+    area = labels.shape[0]*labels.shape[1]
+    minArea = area/28000
+    maxArea = area/80
     tot = np.zeros(labels.shape)
+
 
     for i in range(2, num):
         CC = np.copy(labels)
@@ -239,18 +225,21 @@ def allComponents(num, labels, minArea=100, maxArea=100000):
         # trovo i contorni della figura rappresentata dalla CC
         image, contours, hier = cv2.findContours(CC, 1, 2)
 
-        for cnt in contours:
-            peri = cv2.arcLength(cnt, True)
-            cnt = cv2.approxPolyDP(cnt, 0.04 * peri, True)
-            # per ogni contorno con l'area all'interno di un certo range: trovo il centro e creo un oggetto PossibleStep che lo descrive
-            if len(cnt) > 2 and cv2.contourArea(cnt) >= minArea and cv2.contourArea(cnt) <= maxArea:
-                tot += CC
-                M = cv2.moments(cnt)
-                centroid = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-                components.append(ps.PossibleStep([], CC.copy(), centroid, cnt))
+        cnt = contours[0]
+        peri = cv2.arcLength(cnt, True)
+        cnt = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+        x, y, w, h = cv2.boundingRect(CC)
+        a = len(cnt)
+        b = cv2.contourArea(cnt)
+        # per ogni contorno con l'area all'interno di un certo range: trovo il centro e creo un oggetto PossibleStep che lo descrive
+        if len(cnt) > 2 and cv2.contourArea(cnt) >= minArea and cv2.contourArea(cnt) <= maxArea and w <= labels.shape[1]/5 and h <= labels.shape[0]/5:
+            tot += CC
+            M = cv2.moments(cnt)
+            centroid = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+            components.append(ps.PossibleStep([], CC.copy(), centroid, cnt))
 
     tot = tot.astype(np.uint8)
-    #Image.fromarray(tot).save("C:/Users/manue/Desktop/Manuel/scuola/Universita'/Tesi/French-CVC/spain_T4_0.bmp")
+    #Image.fromarray(tot).save("C:/Users/manue/Desktop/allComponents.bmp")
     return components
 
 
@@ -316,6 +305,7 @@ def contoursDescriptor(CC):
     # dati per disegnare grafico su rettangolo esterno
     x = [gradeSector * i for i in range(numSector)]
     y_rect = []
+    x_rect = []
     # dati per disegnare grafico su CC contenuta nel rettangolo
     x_internal = []
     y_internal = []
@@ -334,6 +324,7 @@ def contoursDescriptor(CC):
         l = distance(centroid, point)
         # print (gradeSector*i, ":     ", l)
         y_rect.append(l)
+        x_rect.append(gradeSector*i)
 
         d = []
         for j in range(len(maxContour)):
@@ -451,6 +442,6 @@ def main(imagePath):
     # imagePath = "/home/manuel/Scrivania/Tesi/thecape-sloth_v2-b65f503e9ab3/French-CVC/spain_T4_18.png"
 
     numCC, CCs = connectedComponents(imagePath)
-    # rects = rectangleComponents(numCC, CCs, 300, 14000)
-    components = allComponents(numCC, CCs, 1000, 100000)
+    components = allComponents(numCC, CCs)
+    #components = nt.main(components)
     return createGraph(components)

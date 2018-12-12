@@ -5,6 +5,7 @@ import numpy as np
 import os.path
 import CC
 import xlsxwriter
+import NeuralNetwork as nt
 
 
 def calculateJaccard(labeledImg, img):
@@ -56,6 +57,7 @@ def calculateBestJaccard(labelPath, img):
 
                 contours = np.array(contours, dtype=np.int32)
                 cv2.drawContours(labeledImg, [contours], -1, 255, cv2.FILLED)          # creo immagine della scala etichettata
+                #Image.fromarray(labeledImg).save("C:/Users/manue/Desktop/labeledImg.png")
 
                 jaccard = calculateJaccard(labeledImg, img)          # calcolo IoU tra risultato del mio programma e scala etichettata
                 if jaccard > bestJaccard:
@@ -64,97 +66,161 @@ def calculateBestJaccard(labelPath, img):
     return bestJaccard, labeledStairs
 
 
-foundTrue = 0           # numero di possibili scale con coeff di Jaccard > 0,8
-found = 0             # numero di possibili scale trovate
-correct = 0            # numero di scale sono state etichettate
+def testGraph():
+    found = 0             # numero di possibili scale trovate
+    correct = 0            # numero di scale che sono state etichettate
 
-# salvo i risultati in un file excel
-workbook = xlsxwriter.Workbook('../result.xlsx')
-worksheet = workbook.add_worksheet()
-worksheet.write(0, 0, 'num File')
-worksheet.write(0, 1, 'coeff')
-row = 1
+    # salvo i risultati in un file excel
+    workbook = xlsxwriter.Workbook('../result.xlsx')
+    worksheet = workbook.add_worksheet()
+    worksheet.write(0, 0, 'num File')
+    worksheet.write(0, 1, 'coeff')
+    row = 1
 
-for numImg in range(11, 12):
-    # eseguo il codice per il riconoscimento delle scale
-    #imagePath = "C:/Users/manue/Desktop/Manuel/scuola/Universita'/Tesi/French-CVC/spain_T4_"+str(numImg)+".png"
-    imagePath = "C:/Users/manue/Desktop/plan/" + str(numImg) + ".png"
-    images = CC.main(imagePath)              # creo lista contenente le immagini di tutte le possibili scale
+    for numImg in range(2, 3):
+        # eseguo il codice per il riconoscimento delle scale
+        #imagePath = "C:/Users/manue/Desktop/Manuel/scuola/Universita'/Tesi/French-CVC/spain_T4_"+str(numImg)+".png"
+        imagePath = "C:/Users/manue/Desktop/plan/" + str(numImg) + ".png"
+        images = CC.main(imagePath)              # creo lista contenente le immagini di tutte le possibili scale
 
-    jaccard = {}
+        jaccard = {}
 
-    for index, img in images.items():
-        # converto il risultato in modo da poter effettuare operazioni sulle componenti trovate
-        img = img.astype(np.uint8)
-        img[img != 0] = 255
-        _, img = cv2.threshold(img, 127, 255, cv2.THRESH_OTSU)
+        for index, img in images.items():
+            # converto il risultato in modo da poter effettuare operazioni sulle componenti trovate
+            img = img.astype(np.uint8)
+            img[img != 0] = 255
+            _, img = cv2.threshold(img, 127, 255, cv2.THRESH_OTSU)
 
-        a = np.count_nonzero(img)
+            # se esiste il file json con l'etichettatura della scala, creo immagine che rappresenta questa etichettatura,
+            # altrimenti se non è presente il file json considero come se non ci fosse etichettatura e quindi creo un'immagine tutta nera
+            lastImagePath = imagePath
+            imagePath = imagePath.split('.')
+            imagePath = imagePath[0] + ".json"
 
-        # se esiste il file json con l'etichettatura della scala, creo immagine che rappresenta questa etichettatura,
-        # altrimenti se non è presente il file json considero come se non ci fosse etichettatura e quindi creo un'immagine tutta nera
-        lastImagePath = imagePath
-        imagePath = imagePath.split('.')
-        imagePath = imagePath[0] + ".json"
+            jaccard[index], nCorrect = calculateBestJaccard(imagePath, img)
+            if imagePath != lastImagePath:
+                correct += nCorrect
 
-        jaccard[index], nCorrect = calculateBestJaccard(imagePath, img)
-        if imagePath != lastImagePath:
-            correct += nCorrect
+        # controllo se le composizioni danno risultati migliori
+        changes = True
+        while changes:
+            changes = False
+            indexes = list(images.keys())
+            for i in indexes:
+                for j in indexes[i+1:]:
+                    bestJaccard, _ = calculateBestJaccard(imagePath, images[i]+images[j])
+                    if bestJaccard > jaccard[i] and bestJaccard > jaccard[j]:
+                        images[i] = images[i] + images[j]
+                        jaccard[i] = bestJaccard
+                        del images[j]
+                        del jaccard[j]
+                        changes = True
+                        break
+                if changes:
+                    break
 
-    # controllo se le composizioni danno risultati migliori
-    for i in range(len(images)):
-        for j in range(i+1, len(images)):
-            bestJaccard, _ = calculateBestJaccard(imagePath, images[i]+images[j])
-            if bestJaccard > jaccard[i] and bestJaccard > jaccard[j]:
-                images[i] = images[i] + images[j]
-                jaccard[i] = bestJaccard
-                del images[j]
-                del jaccard[j]
-                break
+        for jacc in list(jaccard.values()):
+            found += 1
+            print(numImg, jacc)
 
-    for jacc in list(jaccard.values()):
-        found += 1
-        if jacc > 0.8:
-            foundTrue += 1
-        print(numImg, jacc)
+            worksheet.write(row, 0, numImg)
+            worksheet.write(row, 1, jacc)
+            row += 1
+
+    worksheet.write(2, 4, 'Jaccard')
+    worksheet.write(2, 5, 'Trovati Giusti')
+    worksheet.write(2, 6, 'Precision')
+    worksheet.write(2, 7, 'Recall')
+
+    jac = 0.5
+    for val in range(3, 12):
+        worksheet.write(val, 4, jac)
+        worksheet.write_formula('F'+str(val+1), '=CONTA.SE(B2:B'+str(row)+';">'+str(jac)+'")')
+        jac += 0.05
+
+    val += 2
+    print ("Trovati:", found)
+    worksheet.write(val, 4, 'Trovati')
+    worksheet.write(val, 5, found)
+    val += 1
+
+    print ("Giusti:", correct)
+    worksheet.write(val, 4, 'Giusti')
+    worksheet.write(val, 5, correct)
+
+    workbook.close()
+
+
+def testNeuralNetwork():
+    foundTrue = 0               # numero di possibili scale con coeff di Jaccard > 0,8
+    found = 0                 # numero di possibili scale trovate
+    correct = 0                # numero di scale sono state etichettate
+
+    # salvo i risultati in un file excel
+    workbook = xlsxwriter.Workbook('../result.xlsx')
+    worksheet = workbook.add_worksheet()
+    worksheet.write(0, 0, 'num File')
+    worksheet.write(0, 1, 'coeff')
+    row = 1
+
+    for numImg in range(72, 73):
+        # eseguo il codice per il riconoscimento delle scale
+        imagePath = "C:/Users/manue/Desktop/Manuel/scuola/Universita'/Tesi/French-CVC/spain_T4_"+str(numImg)+".png"
+        # imagePath = "C:/Users/manue/Desktop/plan/" + str(numImg) + ".png"
+        img = nt.main(imagePath)                       # creo immagine delle scale trovate dal programma
+
+        labelPath = imagePath.split('.')
+        labelPath = labelPath[0] + ".json"
+        jaccard, nCorrect = calculateBestJaccard(labelPath, img)
+        correct += nCorrect
+
+        #Image.fromarray(img).save("C:/Users/manue/Desktop/img.bmp")
+
+        if np.count_nonzero(img) > 0:
+            found += 1
+        print(numImg, jaccard)
 
         worksheet.write(row, 0, numImg)
-        worksheet.write(row, 1, jacc)
+        worksheet.write(row, 1, jaccard)
         row += 1
 
-worksheet.write(2, 4, 'Jaccard')
-worksheet.write(2, 5, 'cont')
+    worksheet.write(2, 4, 'Jaccard')
+    worksheet.write(2, 5, 'cont')
 
-jac = 0.7
-for val in range(3, 8):
-    worksheet.write(val, 4, jac)
-    worksheet.write_formula(val, 5, '=CONTA.SE(B2:B'+str(row)+';">'+str(jac)+'")')
-    jac += 0.05
+    jac = 0.7
+    for val in range(3, 8):
+        worksheet.write(val, 4, jac)
+        worksheet.write_formula(val, 5, '=CONTA.SE(B2:B' + str(row) + ';">' + str(jac) + '")')
+        jac += 0.05
 
-val += 2
+    val += 2
 
-print ("Trovati giusti:", foundTrue)
-worksheet.write(val, 4, 'Trovati giusti')
-worksheet.write(val, 5, foundTrue)
-val += 1
+    print("Trovati giusti:", foundTrue)
+    worksheet.write(val, 4, 'Trovati giusti')
+    worksheet.write(val, 5, foundTrue)
+    val += 1
 
-print ("Trovati:", found)
-worksheet.write(val, 4, 'Trovati')
-worksheet.write(val, 5, found)
-val += 1
+    print("Trovati:", found)
+    worksheet.write(val, 4, 'Trovati')
+    worksheet.write(val, 5, found)
+    val += 1
 
-print ("Giusti:", correct)
-worksheet.write(val, 4, 'Giusti')
-worksheet.write(val, 5, correct)
-val += 1
+    print("Giusti:", correct)
+    worksheet.write(val, 4, 'Giusti')
+    worksheet.write(val, 5, correct)
+    val += 1
 
-print ("Precision:", foundTrue/found)
-worksheet.write(val, 4, 'Precision')
-worksheet.write(val, 5, foundTrue/found)
-val += 1
+    print("Precision:", foundTrue / found)
+    worksheet.write(val, 4, 'Precision')
+    worksheet.write(val, 5, foundTrue / found)
+    val += 1
 
-print ("Recall:", foundTrue/correct)
-worksheet.write(val, 4, 'Recall')
-worksheet.write(val, 5, foundTrue/correct)
+    print("Recall:", foundTrue / correct)
+    worksheet.write(val, 4, 'Recall')
+    worksheet.write(val, 5, foundTrue / correct)
 
-workbook.close()
+    workbook.close()
+
+
+#testNeuralNetwork()
+testGraph()

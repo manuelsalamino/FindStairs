@@ -4,6 +4,10 @@ class PossibleStep:
         self.image = img
         self.centroid = cen
         self.contour = cont
+        self.probability = None
+
+    def setProb(self, p):
+        self.probability = p
 
 class Edge:
     def __init__(self, nodeI, nodeJ, angI, angJ, inter):
